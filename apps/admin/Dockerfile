@@ -1,4 +1,4 @@
-FROM node:22-alpine AS base
+FROM docker.io/library/node:22-alpine AS base
 RUN apk add --no-cache wget curl && npm install -g pnpm@10.32.1
 
 FROM base AS deps
@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile && pnpm store prune
 FROM base AS builder
 WORKDIR /app
 ENV NODE_ENV=production
-ARG NEXT_PUBLIC_API_URL=http://localhost
+ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ARG NEXT_PUBLIC_SITE_URL=http://localhost
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}

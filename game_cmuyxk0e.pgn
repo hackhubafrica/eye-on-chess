@@ -1,0 +1,21 @@
+[Event "EyeOnChess"]
+[Site "http://localhost:8080"]
+[Date "2026.10.08"]
+[Round "-"]
+[White "admin"]
+[Black "Bot (800)"]
+[Result "1-0"]
+[WhiteElo "1200"]
+[BlackElo "800"]
+[TimeControl "-"]
+[Termination "checkmate"]
+
+[Event "?"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "?"]
+[White "?"]
+[Black "?"]
+[Result "*"]
+
+1. d4 Nf6 2. e3 d6 3. c3 Nbd7 4. f4 a5 5. b4 axb4 6. cxb4 e5 7. dxe5 Ne4 8. Nf3 Nxe5 9. fxe5 Ng5 10. Nxg5 Qxg5 11. g3 f5 12. h4 Qg6 13. Nc3 d5 14. Nxd5 h6 15. Nxc7+ Kf7 16. Bc4+ Be6 17. Nxe6 Be7 18. Nc7+ Kf8 19. Nxa8 Bxh4 20. O-O Bxg3 21. Qd8+ Qe8 22. Qxe8+ Kxe8 23. Rxf5 Kd7 24. Rf7+ Kd8 25. Rxb7 g6 26. e4 Kc8 27. Bd5 Re8 28. e6 h5 29. Bc6 Rg8 30. Nb6+ Kd8 31. Nd7 Bd6 32. Nf6 Bf4 33. Nxg8 Be5 34. Rb1 Kc8 35. b5 h4 36. Rb3 Bd6 37. Rd3 Bc5+ 38. Kf1 h3 39. Rdd7 Bf2 40. Re7 g5 41. Re8# * 1-0

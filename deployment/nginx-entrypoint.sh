@@ -10,7 +10,7 @@ set -e
 
 if [ -n "$SITE_DOMAIN" ] && [ -f "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" ]; then
   echo "SSL certs found for $SITE_DOMAIN — enabling HTTPS"
-  envsubst '${SITE_DOMAIN}' < /etc/nginx/templates/ssl.conf.template > /etc/nginx/conf.d/default.conf
+  envsubst '${SITE_DOMAIN} ${HTTPS_PORT}' < /etc/nginx/templates/ssl.conf.template > /etc/nginx/conf.d/default.conf
 else
   if [ -n "$SITE_DOMAIN" ]; then
     echo "SSL certs not found for $SITE_DOMAIN — starting HTTP-only (run certbot first)"
@@ -27,7 +27,7 @@ if [ -n "$SITE_DOMAIN" ]; then
       rm -f /etc/letsencrypt/.renewed
       # Re-generate SSL config in case this is the first cert
       if [ -f "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" ]; then
-        envsubst '${SITE_DOMAIN}' < /etc/nginx/templates/ssl.conf.template > /etc/nginx/conf.d/default.conf
+        envsubst '${SITE_DOMAIN} ${HTTPS_PORT}' < /etc/nginx/templates/ssl.conf.template > /etc/nginx/conf.d/default.conf
         nginx -s reload 2>/dev/null || true
         echo "Nginx reloaded with renewed certificates"
       fi

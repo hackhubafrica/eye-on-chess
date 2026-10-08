@@ -32,7 +32,18 @@ Update `DATABASE_URL` and `REDIS_URL` to match the new passwords.
 docker compose --env-file .env -f deployment/docker-compose.yml up -d
 ```
 
-Open **http://localhost** and log in with the admin credentials from your `.env`.
+Open **http://localhost:8080** and log in with the admin credentials from your `.env`.
+
+#### Podman
+
+Build the shared local base image before starting the stack, then run:
+
+```bash
+podman build -t eyeonchess-base -f deployment/Dockerfile.base .
+podman-compose --env-file .env -f deployment/docker-compose.yml up -d
+```
+
+The compose file uses host ports `8080` and `8443` by default for rootless Podman. For a public deployment that needs Let's Encrypt, set `HTTP_PORT=80` and `HTTPS_PORT=443` in `.env` and ensure the host allows binding those privileged ports.
 
 ### Development (Hot reload)
 
