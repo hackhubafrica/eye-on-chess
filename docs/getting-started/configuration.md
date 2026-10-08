@@ -56,6 +56,10 @@ These variables define the admin user created on first boot.
 
 The seed user is created with `role: ADMIN` and `verified: true`.
 
+## Wallet Sandbox
+
+The wallet and staked friend-game flow is experimental and does not process real money. To enable the mock deposit flow locally, set `NODE_ENV=development`, `PAYMENTS_MODE=mock`, and a random server-only `MPESA_SANDBOX_CALLBACK_TOKEN`. Sandbox endpoints are unavailable in production. See [Wallet & Payments](../api/wallet.md) for the test flow and limitations.
+
 ## SSL (Optional)
 
 | Variable          | Description                                                                             | Default |

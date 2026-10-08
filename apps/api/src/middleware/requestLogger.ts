@@ -12,6 +12,7 @@ const SENSITIVE_FIELDS = new Set([
   "authorization",
   "cookie",
   "set-cookie",
+  "x-sandbox-callback-token",
 ]);
 
 function redactObject(obj: unknown, depth = 0): unknown {

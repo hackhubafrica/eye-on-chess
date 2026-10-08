@@ -38,3 +38,120 @@ CREATE TABLE matches (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 2.M-Pesa STK Push & Webhook Handler:Payment Gateway Module.Add an Express.js route module (routes/payments.js) to trigger Safaricom STK Push requests when users deposit funds, paired with the idempotent webhook endpoint to capture payment confirmations and credit user wallets safely.3.Server-Authoritative Settlement:Secure Escrow Engine.Implement a game-resolution middleware that validates match checkmates using chess.js on the server and executes database transactions to release the escrow pot without client interference.
+
+
+
+
+
+
+
+
+
+
+This is a substantial shift from the current free-play app to handling regulated real-money matches and payments. I’ll first check the existing match lifecycle and Prisma schema to identify what’s already authoritative and what’s actually missing; then I can start with a safe, testable backend foundation rather than treat client-side balances or payment callbacks as trusted.
+
+Created 3 todos
+
+Searched for regex game.*complete|completed|checkmate|resign|winner|chess\.js|new Chess|transaction\( (**/apps/api/src/**), 105 results
+
+Read package.json
+
+Read package.json
+
+The repo already validates chess moves and finishes games server-side, but I haven’t found wallet/payment primitives. Before choosing implementation scope, I’m checking the exact Prisma game/user models and completion transaction; the local evidence will tell us whether escrow can attach to the existing game lifecycle or needs a separate match record.
+
+Read schema.prisma, lines 1 to 260
+
+Read gameSocket.ts, lines 1 to 95
+
+Read games.ts, lines 670 to 755
+
+The code confirms the chess side already replays and validates moves on the server, while endGame currently settles only game state and Elo; there are no wallet or payment models. Before changing that lifecycle, I need a few financial-policy decisions because they directly determine escrow safety. One important adjustment to the supplied notes: acknowledge M-Pesa only after the callback is durably recorded, not before processing or persistence.
+
+Analyzing your answers...
+
+Q: What should the first implementation target?
+A: Sandbox foundation (Recommended) - Wallet/ledger, escrow lifecycle, and mocked M-Pesa callbacks; no live money movement.
+Q: How should a staked match settle on draw, abort, or disconnect/timeout?
+A: Refund both stakes (Recommended) - Return each player's stake for draws and void/aborted matches; timeout follows the game result.
+Q: Should the initial work include cash-outs to M-Pesa, or deposits only?
+Not answered yet
+I’ll treat this as a sandbox-only foundation, with full stake refunds on draws/aborts and no withdrawal path. Next I’m checking the existing matchmaking entry points and migration conventions so the first slice can tie escrow to actual games without adding a fake “deposit” endpoint that could mint spendable funds.
+
+Starting: Implement and test foundational slice (3/3)
+
+Read schema.prisma, lines 260 to 312
+
+Read games.ts, lines 1 to 170
+
+Read gameSocket.ts, lines 90 to 180
+
+Read migration.sql, lines 1 to 150
+
+I’m going to keep the first code milestone narrow but real: add integer-minor-unit wallet/ledger and escrow records, then make friend-challenge acceptance debit both wallets atomically and make game completion settle or refund escrow atomically. The existing challenge/accept and server-owned end-game paths are the right control points; M-Pesa credentials and live payout remain out of this sandbox slice. I’m checking the current worktree and nearby tests before the first edit so I preserve prior local changes.
+
+
+
+
+
+
+The scope is now concrete: the first slice will support sandbox credits only behind a non-production guard, locked funds for friend challenges, and idempotent server-side settlement/refunds. I’m starting with the database contract in integer minor units; the immediate check is Prisma schema validation, which will catch model/relation errors before I wire any endpoints.
+
+Edited
+schema.prisma
++92
+-0
+pnpm --filter @eyeonchess/api exec prisma validate
+The schema edit is in place, but the focused check is blocked because pnpm isn’t on this shell’s PATH. I’ll use the repo’s declared package manager through Corepack if available; if dependencies aren’t installed, I’ll still validate the migration structure and report that Prisma CLI validation couldn’t run.
+
+corepack pnpm --filter @eyeonchess/api exec prisma validate
+Neither Corepack nor a local Prisma CLI is installed. I’ll try the pinned Prisma CLI via npm exec from the package cache; this won’t add dependencies to the project manifest and is the narrowest available schema validation.
+
+npm exec --yes --package=prisma@6.19.2 -- prisma validate --schema apps/api/prisma/schema.prisma
+The host has Node but neither npm nor the Prisma CLI, so local validation isn’t available. The running API image contains the project toolchain; I’ll mount the edited Prisma directory into a one-off container and run schema validation there, without touching the live service.
+
+podman run --rm -v "$PWD/apps/api/prisma:/app/apps/api/prisma:ro" localhost/eyeonchess-api pnpm --filter @eyeonchess/api exec prisma validate --schema prisma/schema.prisma
+The Prisma model validation passes with Prisma 6.19.2. I’m adding the matching SQL migration next, including database checks that prevent negative wallet balances and invalid ledger account shapes; then I’ll generate the client and move on to the transactional game lifecycle.
+
+Edited
+migration.sql
++106
+-1
+The migration now mirrors the validated schema and enforces nonnegative balances, positive deposits/stakes, fee bounds, and unique idempotency/provider references. Next I’m adding the ledger posting primitive and sandbox wallet endpoint; the mock credit will be inaccessible in production, so no client or callback can mint funds in the deployed configuration.
+
+
+
+
+
+The key local behavior is confirmed: friend games move from WAITING to ACTIVE in one route, and live game completion is owned by endGame. I’m adding a single ledger posting helper first, with an idempotency key and conditional debit; then I’ll build both stake-lock and settlement operations on that primitive.
+
+Created wallet.ts
+
+The ledger primitive is in place; its debit uses a single conditional database update and its journal entry shares the caller’s transaction. I’m validating this helper against a Prisma client generated from the edited schema before adding its endpoints or match integration.
+
+podman run --rm -e DATABASE_URL='postgresql://postgres:unused@localhost:5432/unused' -v "$PWD/apps/api/prisma:/app/apps/api/prisma:ro" -v "$PWD/apps/api/src/lib/wallet.ts:/app/apps/api/src/lib/wallet.ts:ro" localhost/eyeonchess-api sh -lc 'pnpm --filter @eyeonchess/api exec prisma generate --schema prisma/schema.prisma && pnpm --filter @eyeonchess/api exec tsc --noEmit'
+Read content.txt, lines 1 to 60
+
+Prisma client generation succeeded, but the first TypeScript command ran tsc without the API tsconfig, producing unrelated module/target errors. I’m rerunning the same focused check with tsconfig.json, which will tell us whether the new helper itself typechecks.
+
+Read content.txt, lines 1 to 30
+
+The second check still did not use the workspace resolution correctly through pnpm exec, so its failures are environment invocation errors, not evidence about the helper. I’ll invoke the API’s declared typecheck script from its package context inside the image; that matches how the project validates itself.
+
+
+
+
+
+
+
+
+
+
+
+Since this touches balances and game outcomes, focus on proving the backend flow before adding live payments or more features.
+
+Apply the migration safely. Back up the local database, apply the new migration, and confirm existing users and games are unchanged. The migration has not been applied yet.
+Exercise the full sandbox flow. Create a pending mock deposit, confirm the balance stays unchanged, send its success callback, retry the callback to confirm it cannot credit twice, then test a staked game through acceptance and win/draw settlement.
+Build the minimal UI. The backend now has wallet and stake APIs, but the app doesn’t yet let users view balances, add mock funds, or choose a stake. Keep mock controls clearly development-only.
+Keep real payments out of scope for now. Before enabling Daraja or withdrawals, design provider reconciliation, refunds and disputes, operational audit/recovery, and get the relevant legal and compliance review.
+The best immediate next step is a backed-up migration followed by an end-to-end sandbox test against the actual  local database. That will validate the integration points the unit tests can’t prove.

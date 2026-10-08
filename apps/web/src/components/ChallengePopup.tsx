@@ -16,6 +16,7 @@ interface Challenge {
   timeControl: string;
   initialTime: number;
   increment: number;
+  stakeMinor: number;
 }
 
 function formatTime(seconds: number, increment: number): string {
@@ -34,6 +35,7 @@ export default function ChallengePopup() {
   const router = useRouter();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const sound = useSound();
 
@@ -43,6 +45,7 @@ export default function ChallengePopup() {
 
     function onChallenge(data: Challenge) {
       setChallenge(data);
+      setError("");
       sound.playNotify();
     }
 
@@ -60,8 +63,10 @@ export default function ChallengePopup() {
         gameId: challenge.gameId,
       });
       router.push(`/game/${challenge.gameId}`);
-    } catch {
-      setChallenge(null);
+    } catch (requestError: unknown) {
+      const responseError = (requestError as { response?: { data?: { error?: string } } })
+        .response?.data?.error;
+      setError(responseError || "Could not accept the challenge.");
     } finally {
       setLoading(false);
     }
@@ -103,6 +108,12 @@ export default function ChallengePopup() {
         <p className="text-gray-400 text-center text-sm mb-4">
           {formatTime(challenge.initialTime, challenge.increment)} &middot; {challenge.timeControl}
         </p>
+        <p className="mb-4 text-center text-sm font-medium text-amber-300">
+          {challenge.stakeMinor > 0
+            ? `Stake: KES ${(challenge.stakeMinor / 100).toFixed(2)} each`
+            : "Free game"}
+        </p>
+        {error && <p role="alert" className="mb-3 text-center text-sm text-red-300">{error}</p>}
         <div className="flex gap-3">
           <button
             onClick={decline}

@@ -28,6 +28,9 @@ export default function ChallengeFriendPage() {
   const [customMinutes, setCustomMinutes] = useState(10);
   const [customIncrement, setCustomIncrement] = useState(0);
   const [showCustom, setShowCustom] = useState(false);
+  const [stakeEnabled, setStakeEnabled] = useState(false);
+  const [stakeKes, setStakeKes] = useState(50);
+  const [walletBalanceMinor, setWalletBalanceMinor] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmChallenge, setConfirmChallenge] = useState<string | null>(null); // preset or "custom"
@@ -61,6 +64,14 @@ export default function ChallengeFriendPage() {
     if (user) loadFriends();
   }, [user, loadFriends]);
 
+  useEffect(() => {
+    if (!user) return;
+    api
+      .get("/api/v1/wallet")
+      .then(({ data }) => setWalletBalanceMinor(data.balanceMinor))
+      .catch(() => setWalletBalanceMinor(null));
+  }, [user]);
+
   // Listen for challenge accepted → navigate to game
   useEffect(() => {
     const socket = getSocket();
@@ -86,6 +97,14 @@ export default function ChallengeFriendPage() {
 
   async function sendChallenge(preset?: string) {
     if (!selectedFriend) return;
+    if (stakeEnabled && (!Number.isInteger(stakeKes) || stakeKes < 1 || stakeKes > 1000)) {
+      setMessage("Stake must be between KES 1 and KES 1,000.");
+      return;
+    }
+    if (stakeEnabled && walletBalanceMinor !== null && walletBalanceMinor < stakeKes * 100) {
+      setMessage("Your wallet balance is too low for this stake.");
+      return;
+    }
     setSending(true);
     setMessage("");
 
@@ -98,6 +117,7 @@ export default function ChallengeFriendPage() {
 
     try {
       const body: Record<string, unknown> = { friendId: selectedFriend.id };
+      if (stakeEnabled) body.stakeKes = stakeKes;
       if (preset) {
         body.preset = preset;
       } else {
@@ -181,6 +201,60 @@ export default function ChallengeFriendPage() {
           />
         )}
 
+        {selectedFriend && (
+          <section className="rounded-lg border border-gray-700 bg-gray-900 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-gray-300">Entry stake</h2>
+              <span className="text-xs text-gray-400">
+                {walletBalanceMinor === null ? "Balance unavailable" : `Balance: KES ${(walletBalanceMinor / 100).toFixed(2)}`}
+              </span>
+            </div>
+            <div className="inline-flex rounded-md bg-gray-800 p-1" role="group" aria-label="Game stake mode">
+              <button
+                type="button"
+                aria-pressed={!stakeEnabled}
+                onClick={() => setStakeEnabled(false)}
+                disabled={sending}
+                className={`rounded px-4 py-2 text-sm ${!stakeEnabled ? "bg-gray-600 text-white" : "text-gray-400 hover:text-white"}`}
+              >
+                Free
+              </button>
+              <button
+                type="button"
+                aria-pressed={stakeEnabled}
+                onClick={() => setStakeEnabled(true)}
+                disabled={sending}
+                className={`rounded px-4 py-2 text-sm ${stakeEnabled ? "bg-amber-600 text-white" : "text-gray-400 hover:text-white"}`}
+              >
+                Stake
+              </button>
+            </div>
+            {stakeEnabled && (
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-sm text-gray-300">
+                  Each player (KES)
+                  <input
+                    type="number"
+                    min={1}
+                    max={1000}
+                    step={1}
+                    value={stakeKes}
+                    onChange={(event) => setStakeKes(Number(event.target.value))}
+                    disabled={sending}
+                    className="h-10 w-36 rounded border border-gray-600 bg-gray-800 px-3 text-white"
+                  />
+                </label>
+                <p className="pb-2 text-sm text-gray-400">
+                  Pot: KES {Number.isFinite(stakeKes) ? (stakeKes * 2).toFixed(2) : "0.00"}
+                </p>
+              </div>
+            )}
+            <p className="mt-3 text-xs text-gray-500">
+              Both players need the full stake in their wallets before the game starts.
+            </p>
+          </section>
+        )}
+
         <div className="text-center">
           <Link href="/play" className="text-gray-400 hover:text-white text-sm">
             &larr; Back to Play
@@ -190,7 +264,7 @@ export default function ChallengeFriendPage() {
         <ConfirmModal
           open={!!confirmChallenge}
           title="Send Challenge?"
-          message={`Challenge ${selectedFriend?.username || "friend"} (${selectedFriend?.rating || "?"})\nTime: ${confirmChallenge === "custom" ? `${customMinutes}+${customIncrement}` : (confirmChallenge && TIME_CONTROL_PRESETS[confirmChallenge]?.label) || confirmChallenge || ""}`}
+          message={`Challenge ${selectedFriend?.username || "friend"} (${selectedFriend?.rating || "?"})\nTime: ${confirmChallenge === "custom" ? `${customMinutes}+${customIncrement}` : (confirmChallenge && TIME_CONTROL_PRESETS[confirmChallenge]?.label) || confirmChallenge || ""}\n${stakeEnabled ? `Stake: KES ${stakeKes} each (KES ${stakeKes * 2} pot)` : "Free game"}`}
           confirmLabel="Send Challenge"
           confirmVariant="primary"
           onConfirm={() => {

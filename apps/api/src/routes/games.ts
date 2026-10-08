@@ -15,6 +15,7 @@ import {
   RESULT_PGN,
 } from "@eyeonchess/chess";
 import { detectGameEnd } from "../lib/gameHelpers.js";
+import { InsufficientWalletFundsError, lockGameStake, settleGameEscrow } from "../lib/wallet.js";
 import {
   apiError,
   GAME_SELF_CHALLENGE,
@@ -28,6 +29,8 @@ import {
   GAME_INVALID_MOVE,
   GAME_INVALID_PRESET,
   GAME_BOT_ERROR,
+  GAME_INSUFFICIENT_FUNDS,
+  GAME_CHALLENGE_CANNOT_ACCEPT_OWN,
 } from "../lib/errorCodes.js";
 import { z } from "zod";
 import {
@@ -50,10 +53,17 @@ export async function gameRoutes(app: FastifyInstance) {
       preset?: string;
       initialTime?: number;
       increment?: number;
+      stakeKes?: number;
     };
   }>("/games/friend", { schema: { body: createFriendGameBodySchema } }, async (request, reply) => {
     const userId = request.user.userId;
-    const { friendId, preset, initialTime: customTime, increment: customIncrement } = request.body;
+    const {
+      friendId,
+      preset,
+      initialTime: customTime,
+      increment: customIncrement,
+      stakeKes,
+    } = request.body;
 
     if (friendId === userId) {
       return apiError(reply, 400, GAME_SELF_CHALLENGE, "Cannot challenge yourself");
@@ -100,10 +110,12 @@ export async function gameRoutes(app: FastifyInstance) {
       data: {
         whiteId,
         blackId,
+        challengeCreatorId: userId,
         status: "WAITING",
         timeControl,
         initialTime,
         increment,
+        stakeMinor: (stakeKes ?? 0) * 100,
         whiteTimeLeft: initialTime * 1000,
         blackTimeLeft: initialTime * 1000,
       },
@@ -122,6 +134,7 @@ export async function gameRoutes(app: FastifyInstance) {
         timeControl,
         initialTime,
         increment,
+        stakeMinor: game.stakeMinor,
       });
     }
 
@@ -148,11 +161,36 @@ export async function gameRoutes(app: FastifyInstance) {
       if (game.whiteId !== userId && game.blackId !== userId) {
         return apiError(reply, 403, GAME_NOT_PARTICIPANT, "Not part of this challenge");
       }
+      if (game.challengeCreatorId === userId) {
+        return apiError(reply, 403, GAME_CHALLENGE_CANNOT_ACCEPT_OWN, "Only the challenged player can accept");
+      }
 
-      await prisma.game.update({
-        where: { id: gameId },
-        data: { status: "ACTIVE", startedAt: new Date() },
-      });
+      try {
+        const accepted = await prisma.$transaction(async (tx) => {
+          const claim = await tx.game.updateMany({
+            where: { id: gameId, status: "WAITING" },
+            data: { status: "ACTIVE", startedAt: new Date() },
+          });
+          if (claim.count !== 1) return false;
+
+          if (game.stakeMinor > 0 && game.whiteId && game.blackId) {
+            await lockGameStake(tx, {
+              gameId,
+              playerIds: [game.whiteId, game.blackId],
+              stakeMinor: game.stakeMinor,
+            });
+          }
+          return true;
+        });
+        if (!accepted) {
+          return apiError(reply, 400, GAME_ALREADY_RESOLVED, "Challenge already resolved");
+        }
+      } catch (error) {
+        if (error instanceof InsufficientWalletFundsError) {
+          return apiError(reply, 402, GAME_INSUFFICIENT_FUNDS, "Both players need enough wallet funds to start");
+        }
+        throw error;
+      }
 
       // Init clocks in Redis (skip for unlimited)
       if (game.timeControl !== "UNLIMITED") {
@@ -634,10 +672,24 @@ export async function gameRoutes(app: FastifyInstance) {
 
     const result = game.whiteId === userId ? "BLACK_WIN" : "WHITE_WIN";
 
-    await prisma.game.update({
-      where: { id: gameId },
-      data: { status: "COMPLETED", result, termination: "RESIGNATION", endedAt: new Date() },
+    const finalized = await prisma.$transaction(async (tx) => {
+      const claim = await tx.game.updateMany({
+        where: { id: gameId, status: "ACTIVE" },
+        data: { status: "COMPLETED", result, termination: "RESIGNATION", endedAt: new Date() },
+      });
+      if (claim.count !== 1) return false;
+
+      await settleGameEscrow(tx, {
+        gameId,
+        result,
+        whiteId: game.whiteId,
+        blackId: game.blackId,
+      });
+      return true;
     });
+    if (!finalized) {
+      return apiError(reply, 400, GAME_NOT_ACTIVE, "Game not active");
+    }
 
     return { result, termination: "RESIGNATION" };
   });

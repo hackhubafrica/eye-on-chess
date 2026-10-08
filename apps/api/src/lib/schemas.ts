@@ -63,6 +63,7 @@ export const createFriendGameBodySchema = z.object({
   preset: z.string().optional(),
   initialTime: z.number().optional(),
   increment: z.number().optional(),
+  stakeKes: z.number().int().min(1).max(1000).optional(),
 });
 
 export const gameActionBodySchema = z.object({

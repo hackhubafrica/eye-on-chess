@@ -31,6 +31,7 @@ const mockPrismaClient: Record<string, unknown> = {
     findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
     delete: vi.fn(),
     count: vi.fn(),
     groupBy: vi.fn().mockResolvedValue([]),
@@ -86,6 +87,25 @@ const mockPrismaClient: Record<string, unknown> = {
     findUnique: vi.fn(),
     findMany: vi.fn(),
     create: vi.fn(),
+  },
+  wallet: {
+    findUnique: vi.fn(),
+    upsert: vi.fn(),
+    updateMany: vi.fn(),
+  },
+  ledgerEntry: {
+    findUnique: vi.fn(),
+    create: vi.fn(),
+  },
+  deposit: {
+    findUnique: vi.fn(),
+    create: vi.fn(),
+    updateMany: vi.fn(),
+  },
+  gameEscrow: {
+    create: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
   },
   siteSettings: {
     findUnique: vi.fn(),

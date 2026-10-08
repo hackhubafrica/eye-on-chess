@@ -126,6 +126,7 @@ export default function BotGamePage({ params }: { params: { id: string } }) {
   const [playerIsWhite, setPlayerIsWhite] = useState(true);
   const [gameOver, setGameOver] = useState<string | null>(null);
   const [gameOverQuote, setGameOverQuote] = useState<string | null>(null);
+  const [rematching, setRematching] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [evalScore, setEvalScore] = useState(0);
@@ -876,6 +877,9 @@ export default function BotGamePage({ params }: { params: { id: string } }) {
 
   // --- Rematch ---
   async function rematch() {
+    if (rematching) return;
+    setRematching(true);
+    setError("");
     const isWhite = !playerIsWhite;
     botChat.clearMessage();
     botReactions.clearReactions();
@@ -892,8 +896,12 @@ export default function BotGamePage({ params }: { params: { id: string } }) {
         if (bot) params.set("botId", bot.id);
         const paramStr = params.toString();
         router.push(`/play/bot/${newId}${paramStr ? `?${paramStr}` : ""}`);
-      } catch {
-        setError("Failed to create rematch.");
+      } catch (err: unknown) {
+        const message =
+          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          "Failed to create rematch. Check your connection and try again.";
+        setError(message);
+        setRematching(false);
       }
     } else {
       // Offline: generate new offline ID
@@ -1308,12 +1316,14 @@ export default function BotGamePage({ params }: { params: { id: string } }) {
             ) : (
               <div className="mb-2" />
             )}
+            {error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
             <div className="flex gap-3">
               <button
                 onClick={rematch}
-                className="flex-1 py-2 bg-green-600 hover:bg-green-700 rounded font-medium transition-colors"
+                disabled={rematching}
+                className="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded font-medium transition-colors"
               >
-                Rematch
+                {rematching ? "Starting..." : "Rematch"}
               </button>
               <button
                 onClick={playAgain}

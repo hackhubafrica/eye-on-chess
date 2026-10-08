@@ -61,6 +61,35 @@ enum UserRole {
   ADMIN
 }
 
+enum LedgerEntryType {
+  DEPOSIT
+  STAKE_LOCK
+  ESCROW_FUNDING
+  ESCROW_RELEASE
+  STAKE_REFUND
+  MATCH_PAYOUT
+  PLATFORM_FEE
+}
+
+enum LedgerAccountType {
+  USER_WALLET
+  PLATFORM
+  CLEARING
+  ESCROW
+}
+
+enum DepositStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum EscrowStatus {
+  HELD
+  SETTLED
+  REFUNDED
+}
+
 // ── Models ─────────────────────────────────────────────
 
 model User {
@@ -92,6 +121,9 @@ model User {
   invitesCreated      Invite[]       @relation("InviteCreator")
   invitedVia          Invite?        @relation("InviteUsedBy")
   gameNotes           GameNote[]
+  wallet              Wallet?
+  deposits            Deposit[]
+  challengesCreated   Game[]           @relation("GameChallengeCreator")
 }
 
 model RefreshToken {
@@ -126,6 +158,7 @@ model Game {
   id            String      @id @default(cuid())
   whiteId       String?
   blackId       String?
+  challengeCreatorId String?
   status        GameStatus  @default(WAITING)
   result        GameResult?
   termination   Termination?
@@ -141,20 +174,86 @@ model Game {
   createdAt     DateTime    @default(now())
   startedAt     DateTime?
   endedAt       DateTime?
+  stakeMinor    Int         @default(0)
 
   white           User?            @relation("WhitePlayer", fields: [whiteId], references: [id])
   black           User?            @relation("BlackPlayer", fields: [blackId], references: [id])
+  challengeCreator User?           @relation("GameChallengeCreator", fields: [challengeCreatorId], references: [id], onDelete: SetNull)
   moves           Move[]
   analysis        GameAnalysis?
   gameCollections GameCollection[]
   gameNotes       GameNote[]
+  escrow          GameEscrow?
+  ledgerEntries   LedgerEntry[]
 
   @@index([status])
   @@index([whiteId])
   @@index([blackId])
+  @@index([challengeCreatorId])
   @@index([createdAt])
   @@index([endedAt])
   @@index([isVsBot, botElo])
+}
+
+model Wallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  balanceMinor Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries LedgerEntry[]
+}
+
+model LedgerEntry {
+  id             String            @id @default(cuid())
+  accountType    LedgerAccountType
+  walletId       String?
+  amountMinor    Int
+  type           LedgerEntryType
+  idempotencyKey String            @unique
+  gameId         String?
+  depositId      String?
+  createdAt      DateTime          @default(now())
+
+  wallet  Wallet?  @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  game    Game?    @relation(fields: [gameId], references: [id], onDelete: Restrict)
+  deposit Deposit? @relation(fields: [depositId], references: [id], onDelete: Restrict)
+
+  @@index([walletId, createdAt])
+  @@index([gameId])
+  @@index([depositId])
+}
+
+model Deposit {
+  id                String        @id @default(cuid())
+  userId            String
+  amountMinor       Int
+  status            DepositStatus @default(PENDING)
+  idempotencyKey    String        @unique
+  checkoutRequestId String?       @unique
+  receiptNumber     String?       @unique
+  createdAt         DateTime      @default(now())
+  confirmedAt       DateTime?
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  entries LedgerEntry[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model GameEscrow {
+  id              String       @id @default(cuid())
+  gameId          String       @unique
+  stakeMinor      Int
+  platformFeeBps  Int          @default(1000)
+  status          EscrowStatus @default(HELD)
+  createdAt       DateTime     @default(now())
+  settledAt       DateTime?
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Restrict)
 }
 
 model Move {

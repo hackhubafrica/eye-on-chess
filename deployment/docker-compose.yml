@@ -173,6 +173,7 @@ services:
       - ../.env
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@pgbouncer:6432/eyeonchess?pgbouncer=true&connection_limit=10
+      ADMIN_URL: ${ADMIN_URL:-http://localhost:3002}
     volumes:
       - ./config/rate-limits.yml:/app/config/rate-limits.yml:ro
     depends_on:
@@ -202,6 +203,8 @@ services:
       dockerfile: apps/web/Dockerfile.prod
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_ADMIN_URL: ${NEXT_PUBLIC_ADMIN_URL:-http://localhost:3002}
+        NEXT_PUBLIC_PAYMENTS_MODE: ${NEXT_PUBLIC_PAYMENTS_MODE:-disabled}
     restart: unless-stopped
     env_file:
       - ../.env
@@ -229,7 +232,10 @@ services:
       dockerfile: apps/admin/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:8080}
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ADMIN_HOST_PORT:-3002}:3002"
     env_file:
       - ../.env
     environment:

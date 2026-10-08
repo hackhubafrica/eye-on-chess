@@ -76,6 +76,23 @@ describe("gameRoutes", () => {
       expect(body.game.id).toBe("g-1");
     });
 
+    it("stores an optional stake in minor currency units", async () => {
+      const prisma = getPrisma();
+      prisma.friendship.findFirst.mockResolvedValue({ id: "f-1", status: "ACCEPTED" });
+      prisma.game.create.mockResolvedValue({ id: "g-2" });
+
+      await app.inject({
+        method: "POST",
+        url: "/games/friend",
+        headers: authHeader(),
+        payload: { friendId: "friend-id", initialTime: 600, stakeKes: 50 },
+      });
+
+      expect(prisma.game.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ stakeMinor: 5000 }) })
+      );
+    });
+
     it("returns 400 when friendId missing", async () => {
       const res = await app.inject({
         method: "POST",
@@ -140,11 +157,12 @@ describe("gameRoutes", () => {
         status: "WAITING",
         whiteId: TEST_USER.id,
         blackId: "other-id",
+        stakeMinor: 0,
         timeControl: "RAPID",
         initialTime: 600,
         increment: 0,
       });
-      prisma.game.update.mockResolvedValue({});
+      prisma.game.updateMany.mockResolvedValue({ count: 1 });
 
       const res = await app.inject({
         method: "POST",
@@ -155,6 +173,92 @@ describe("gameRoutes", () => {
 
       expect(res.statusCode).toBe(200);
       expect(JSON.parse(res.body).success).toBe(true);
+    });
+
+    it("locks the stake from both players on acceptance", async () => {
+      const prisma = getPrisma();
+      prisma.game.findUnique.mockResolvedValue({
+        id: "g-staked",
+        status: "WAITING",
+        whiteId: TEST_USER.id,
+        blackId: "other-id",
+        stakeMinor: 5000,
+        timeControl: "RAPID",
+        initialTime: 600,
+        increment: 0,
+      });
+      prisma.game.updateMany.mockResolvedValue({ count: 1 });
+      prisma.wallet.upsert
+        .mockResolvedValueOnce({ id: "wallet-a" })
+        .mockResolvedValueOnce({ id: "wallet-b" });
+      prisma.ledgerEntry.findUnique.mockResolvedValue(null);
+      prisma.wallet.updateMany.mockResolvedValue({ count: 1 });
+      prisma.ledgerEntry.create.mockResolvedValue({ id: "entry-1" });
+      prisma.gameEscrow.create.mockResolvedValue({ id: "escrow-1" });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/games/challenge/accept",
+        headers: authHeader(),
+        payload: { gameId: "g-staked" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(prisma.wallet.updateMany).toHaveBeenCalledTimes(2);
+      expect(prisma.gameEscrow.create).toHaveBeenCalledWith({
+        data: { gameId: "g-staked", stakeMinor: 5000 },
+      });
+    });
+
+    it("rejects acceptance when a player cannot cover the stake", async () => {
+      const prisma = getPrisma();
+      prisma.game.findUnique.mockResolvedValue({
+        id: "g-staked",
+        status: "WAITING",
+        whiteId: TEST_USER.id,
+        blackId: "other-id",
+        stakeMinor: 5000,
+        timeControl: "RAPID",
+        initialTime: 600,
+        increment: 0,
+      });
+      prisma.game.updateMany.mockResolvedValue({ count: 1 });
+      prisma.wallet.upsert.mockResolvedValue({ id: "wallet-a" });
+      prisma.ledgerEntry.findUnique.mockResolvedValue(null);
+      prisma.wallet.updateMany.mockResolvedValue({ count: 0 });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/games/challenge/accept",
+        headers: authHeader(),
+        payload: { gameId: "g-staked" },
+      });
+
+      expect(res.statusCode).toBe(402);
+      expect(JSON.parse(res.body).code).toBe("GAME_INSUFFICIENT_FUNDS");
+    });
+
+    it("does not allow the challenge creator to accept their own game", async () => {
+      const prisma = getPrisma();
+      prisma.game.findUnique.mockResolvedValue({
+        id: "g-owned",
+        status: "WAITING",
+        whiteId: TEST_USER.id,
+        blackId: "other-id",
+        challengeCreatorId: TEST_USER.id,
+        stakeMinor: 5000,
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/games/challenge/accept",
+        headers: authHeader(),
+        payload: { gameId: "g-owned" },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(JSON.parse(res.body).code).toBe("GAME_CHALLENGE_CANNOT_ACCEPT_OWN");
+      expect(prisma.game.updateMany).not.toHaveBeenCalled();
     });
 
     it("returns 404 when game not found", async () => {
@@ -592,7 +696,19 @@ describe("gameRoutes", () => {
         whiteId: TEST_USER.id,
         blackId: "other",
       });
-      prisma.game.update.mockResolvedValue({});
+      prisma.game.updateMany.mockResolvedValue({ count: 1 });
+      prisma.gameEscrow.findUnique.mockResolvedValue({
+        id: "escrow-1",
+        gameId: "g-1",
+        stakeMinor: 1000,
+        platformFeeBps: 1000,
+        status: "HELD",
+      });
+      prisma.gameEscrow.update.mockResolvedValue({ id: "escrow-1", status: "SETTLED" });
+      prisma.wallet.upsert.mockResolvedValue({ id: "winner-wallet" });
+      prisma.ledgerEntry.findUnique.mockResolvedValue(null);
+      prisma.wallet.updateMany.mockResolvedValue({ count: 1 });
+      prisma.ledgerEntry.create.mockResolvedValue({ id: "ledger-entry" });
 
       const res = await app.inject({
         method: "POST",
@@ -600,10 +716,17 @@ describe("gameRoutes", () => {
         headers: authHeader(),
       });
 
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode, res.body).toBe(200);
       const body = JSON.parse(res.body);
       expect(body.result).toBe("BLACK_WIN");
       expect(body.termination).toBe("RESIGNATION");
+      expect(prisma.ledgerEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amountMinor: 1800, type: "MATCH_PAYOUT" }),
+      });
+      expect(prisma.gameEscrow.update).toHaveBeenCalledWith({
+        where: { id: "escrow-1" },
+        data: expect.objectContaining({ status: "SETTLED" }),
+      });
     });
 
     it("returns 400 when game not active", async () => {

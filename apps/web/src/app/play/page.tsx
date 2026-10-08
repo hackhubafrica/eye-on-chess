@@ -79,6 +79,18 @@ export default function PlayPage() {
           )}
           {isOnline ? (
             <Link
+              href="/wallet"
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition-colors"
+            >
+              Wallet
+            </Link>
+          ) : (
+            <span className="px-4 py-2 bg-gray-800 rounded font-medium text-gray-500 cursor-not-allowed">
+              Wallet
+            </span>
+          )}
+          {isOnline ? (
+            <Link
               href="/history"
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium transition-colors"
             >

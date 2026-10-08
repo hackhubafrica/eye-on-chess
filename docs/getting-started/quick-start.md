@@ -33,6 +33,7 @@ docker compose --env-file .env -f deployment/docker-compose.yml up -d
 ```
 
 Open **http://localhost:8080** and log in with the admin credentials from your `.env`.
+The admin panel is available locally at **http://localhost:3002**. Its container port is bound to loopback only.
 
 #### Podman
 

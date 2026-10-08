@@ -2,6 +2,8 @@ import { Server as SocketServer, Socket } from "socket.io";
 import { Chess } from "chess.js";
 import { prisma } from "./prisma.js";
 import { computeElo } from "./elo.js";
+import { settleGameEscrow } from "./wallet.js";
+import { isGameParticipant, isOpposingPlayer } from "./gameAuthorization.js";
 import { redis, checkReactionRateLimit } from "./redis.js";
 import { logger } from "./logger.js";
 import { moveValidationFailures, gameTimeouts } from "./metrics.js";
@@ -33,7 +35,7 @@ async function getFullGameState(gameId: string) {
 // Track draw offers: gameId -> offeringUserId (module-level so endGame can clean up)
 const drawOffers = new Map<string, string>();
 
-async function endGame(
+export async function endGame(
   io: SocketServer,
   gameId: string,
   result: GameResult,
@@ -41,48 +43,66 @@ async function endGame(
 ) {
   drawOffers.delete(gameId);
 
-  const game = await prisma.game.update({
-    where: { id: gameId },
-    data: {
-      status: result === "ABORTED" ? "ABORTED" : "COMPLETED",
+  const completed = await prisma.$transaction(async (tx) => {
+    const claim = await tx.game.updateMany({
+      where: { id: gameId, status: "ACTIVE" },
+      data: {
+        status: result === "ABORTED" ? "ABORTED" : "COMPLETED",
+        result,
+        termination,
+        endedAt: new Date(),
+      },
+    });
+    if (claim.count !== 1) return null;
+
+    const game = await tx.game.findUnique({
+      where: { id: gameId },
+      include: {
+        white: { select: { id: true, rating: true } },
+        black: { select: { id: true, rating: true } },
+      },
+    });
+    if (!game) return null;
+
+    await settleGameEscrow(tx, {
+      gameId,
       result,
-      termination,
-      endedAt: new Date(),
-    },
-    include: {
-      white: { select: { id: true, rating: true } },
-      black: { select: { id: true, rating: true } },
-    },
+      whiteId: game.whiteId,
+      blackId: game.blackId,
+    });
+
+    let ratingChange = { white: 0, black: 0 };
+    if (result !== "ABORTED" && game.white && game.black && !game.isVsBot) {
+      const { newWhiteRating, newBlackRating } = computeElo(
+        game.white.rating,
+        game.black.rating,
+        result
+      );
+      ratingChange = {
+        white: newWhiteRating - game.white.rating,
+        black: newBlackRating - game.black.rating,
+      };
+      await tx.user.update({
+        where: { id: game.white.id },
+        data: { rating: newWhiteRating },
+      });
+      await tx.user.update({
+        where: { id: game.black.id },
+        data: { rating: newBlackRating },
+      });
+    }
+
+    return { ratingChange };
   });
 
-  let ratingChange = { white: 0, black: 0 };
-
-  if (result !== "ABORTED" && game.white && game.black && !game.isVsBot) {
-    const { newWhiteRating, newBlackRating } = computeElo(
-      game.white.rating,
-      game.black.rating,
-      result
-    );
-    ratingChange = {
-      white: newWhiteRating - game.white.rating,
-      black: newBlackRating - game.black.rating,
-    };
-    await prisma.user.update({
-      where: { id: game.white.id },
-      data: { rating: newWhiteRating },
-    });
-    await prisma.user.update({
-      where: { id: game.black.id },
-      data: { rating: newBlackRating },
-    });
-  }
-
   await removeActiveGame(gameId);
+
+  if (!completed) return;
 
   io.to(`game:${gameId}`).emit("game:over", {
     result,
     termination,
-    ratingChange,
+    ratingChange: completed.ratingChange,
   });
 }
 
@@ -129,6 +149,7 @@ export function setupGameSocket(io: SocketServer) {
       safe("game:resign", async (gameId: string) => {
         const game = await prisma.game.findUnique({ where: { id: gameId } });
         if (!game || game.status !== "ACTIVE") return;
+        if (!isGameParticipant(game, userId)) return;
 
         const result = game.whiteId === userId ? "BLACK_WIN" : "WHITE_WIN";
         await endGame(io, gameId, result, "RESIGNATION");
@@ -141,6 +162,7 @@ export function setupGameSocket(io: SocketServer) {
       safe("game:draw:offer", async (gameId: string) => {
         const game = await prisma.game.findUnique({ where: { id: gameId } });
         if (!game || game.status !== "ACTIVE") return;
+        if (!isGameParticipant(game, userId)) return;
 
         drawOffers.set(gameId, userId);
         socket.to(`game:${gameId}`).emit("game:draw:offered", { by: userId });
@@ -153,6 +175,12 @@ export function setupGameSocket(io: SocketServer) {
       safe("game:draw:accept", async (gameId: string) => {
         const offerer = drawOffers.get(gameId);
         if (!offerer || offerer === userId) return;
+        const game = await prisma.game.findUnique({
+          where: { id: gameId },
+          select: { whiteId: true, blackId: true, status: true },
+        });
+        if (!game || game.status !== "ACTIVE") return;
+        if (!isOpposingPlayer(game, offerer, userId)) return;
 
         drawOffers.delete(gameId);
         await endGame(io, gameId, "DRAW", "AGREEMENT");
@@ -163,6 +191,13 @@ export function setupGameSocket(io: SocketServer) {
     socket.on(
       "game:draw:decline",
       safe("game:draw:decline", async (gameId: string) => {
+        const game = await prisma.game.findUnique({
+          where: { id: gameId },
+          select: { whiteId: true, blackId: true, status: true },
+        });
+        if (!game || game.status !== "ACTIVE") return;
+        if (!isGameParticipant(game, userId)) return;
+
         drawOffers.delete(gameId);
         socket.to(`game:${gameId}`).emit("game:draw:declined");
       })

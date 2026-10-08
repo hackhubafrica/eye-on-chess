@@ -21,6 +21,8 @@ import { noteRoutes } from "./routes/notes.js";
 import { activityRoutes } from "./routes/activity.js";
 import { statsRoutes } from "./routes/stats.js";
 import { publicGameRoutes } from "./routes/publicGames.js";
+import { walletRoutes } from "./routes/wallet.js";
+import { paymentRoutes } from "./routes/payments.js";
 import { setupSocket } from "./lib/socket.js";
 import { setupGameSocket } from "./lib/gameSocket.js";
 import { getSiteSettings } from "./lib/settings.js";
@@ -200,6 +202,8 @@ async function main() {
       await v1.register(noteRoutes);
       await v1.register(activityRoutes);
       await v1.register(statsRoutes);
+      await v1.register(walletRoutes);
+      await v1.register(paymentRoutes);
 
       v1.get("/settings", async () => {
         const settings = await getSiteSettings();

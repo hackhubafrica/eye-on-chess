@@ -54,6 +54,7 @@ describe("registerRequestLogger", () => {
       headers: {
         authorization: "Bearer super-secret-token",
         cookie: "session=abc123",
+        "x-sandbox-callback-token": "sandbox-callback-secret",
         "user-agent": "test-agent",
       },
     });
@@ -67,6 +68,7 @@ describe("registerRequestLogger", () => {
       const headers = headerLog.headers as Record<string, unknown>;
       expect(headers.authorization).toBe("[REDACTED]");
       expect(headers.cookie).toBe("[REDACTED]");
+      expect(headers["x-sandbox-callback-token"]).toBe("[REDACTED]");
       // Non-sensitive headers should pass through
       expect(headers["user-agent"]).toBe("test-agent");
     }

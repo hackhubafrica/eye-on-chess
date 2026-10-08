@@ -10,6 +10,7 @@
 - [Stats](stats.md) — Personal stats dashboard (rating, record, openings, accuracy, streaks)
 - [Activity](activity.md) — Activity feed (recent games, analyses, friendships)
 - [Notes](notes.md) — Personal game notes
+- [Wallet & Payments (Sandbox)](wallet.md) — Wallet ledger, staked friend games, and mock payment callbacks
 - [WebSocket Events](websocket.md) — Socket.io real-time events reference
 
 ## API Versioning
